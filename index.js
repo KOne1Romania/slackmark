@@ -13,65 +13,83 @@ var myFirebaseRef = new Firebase("https://slackmark.firebaseio.com/");
 function addLink(res, user, link, alias, tag){
   if(!link) {
     displayHelp(res);
-  } else {
-    var resp = {
-        "text": user + " saved " + link,
-    };
+    return;
+  }
 
-    myFirebaseRef.push().set({
-      link,
-      user,
-      alias,
-      tag,
-    }, (error) => {
+  var resp = {
+    response_type: "in_channel",
+    text: `*${user}* saved ${link} ${alias ? 'as _' + alias + '_' : ''} ${tag ? '[' + tag + ']' : ''}`,
+    "mrkdwn": true
+  };
+
+  myFirebaseRef.push().set({
+    link,
+    user,
+    alias,
+    tag,
+  }, (error) => {
+    if (error) {
+      res.send(error);
+      return;
+    }
+
+    res.send(resp);
+  });
+}
+
+function listLinks(res, tag) {
+  var resp = {
+      text: 'Saved links:',
+      attachments: []
+  };
+
+  function addLinkToResp(data) {
+    resp.attachments.push({
+      title: data.alias,
+      text: `${data.link} ${data.tag ? '['+data.tag+']' : ''}`,
+      mrkdwn_in: ["text"]
+    });
+  }
+
+  function parseSnapshot(snapshot) {
+    if (snapshot.exists()) {
+      snapshot.forEach((childSnapshot) => {
+        var childData = childSnapshot.val();
+        addLinkToResp(childData);
+      });
+    } else {
+      resp.text = `No links with tag [${tag}]`;
+    }
+  }
+
+  if (tag) {
+    myFirebaseRef.orderByChild("tag").equalTo(tag).on("value", (snapshot) => {
+      parseSnapshot(snapshot);
+      res.send(resp);
+    });
+  } else {
+    myFirebaseRef.once("value", (snapshot) => {
+      parseSnapshot(snapshot);
       res.send(resp);
     });
   }
 }
 
-function listLinks(res, tag) {
-  var resp = {
-      "text": 'Saved links:',
-      "attachments" : []
-  };
-  myFirebaseRef.once("value", function(snapshot) {
-    var index = 0;
-    snapshot.forEach(function(childSnapshot) {
-
-      var childData = childSnapshot.val();
-      if(tag) {
-        if(childData.tag == tag) {
-          index += 1;
-          resp.attachments.push({
-            "title": childData.alias,
-            "text": `*\`${index}\`*  ${childData.link}`,
-            "mrkdwn_in": ["text"]
-          });
-        }
-      } else {
-        index += 1;
-        resp.attachments.push({
-          "title": childData.alias,
-          "text": `*\`${index}\`*  ${childData.link} ${childData.tag ? '['+childData.tag+']' : ''}`,
-          "mrkdwn_in": ["text"]
-        });
-      }
-    });
-    res.send(resp);
-  });
-}
-
 function displayHelp(res) {
   var resp = {
-    "text": "Here are the actions you can use",
-    "attachments": [
+    text: "Here are the actions you can use",
+    attachments: [
       {
-        "title": "Save a link",
-        "text": "/mark add http://example.com example[alias]"
+        title: "Save a link",
+        text: "/mark add example.com example-alias [tag]"
       },
       {
-        "title": "See all links",
-        "text": "/mark list"
+        title: "See all links",
+        text: "/mark list"
+      },
+      {
+        title: "See all links with a tag",
+        text: "/mark list [tag]"
       }
     ]
   };
@@ -79,8 +97,7 @@ function displayHelp(res) {
   res.send(resp);
 }
 
-app.post('/', function (req, res) {
-
+app.post('/', (req, res) => {
   var args = req.body.text.split(' ');
   var command = args[0];
   var user = req.body.user_name;
@@ -91,7 +108,7 @@ app.post('/', function (req, res) {
       listLinks(res, tag);
       break;
     case 'help':
-
+      displayHelp(res);
       break;
     case 'add':
       var link = args.length > 1 ? args[1] : null;
@@ -102,10 +119,9 @@ app.post('/', function (req, res) {
     default:
       displayHelp(res);
   }
-
 });
 
-var server = app.listen(8080, function () {
+var server = app.listen(8080, () => {
   var host = server.address().address;
   var port = server.address().port;
 
